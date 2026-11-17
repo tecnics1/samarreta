@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Canvia-ho pel correu de l'administrador (el mateix que crearàs a Firebase)
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == "EL-TEU-CORREU@exemple.com";
+    }
+
+    match /candidates/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /votes/{uid} {
+      allow read: if true;
+      // Un sol vot per dispositiu: el document és el del propi uid i només es pot crear (no editar)
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['best', 'worst', 'ts'])
+        && request.resource.data.best != request.resource.data.worst
+        && exists(/databases/$(database)/documents/candidates/$(request.resource.data.best))
+        && exists(/databases/$(database)/documents/candidates/$(request.resource.data.worst));
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+  }
+}

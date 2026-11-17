@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Votació de samarretes</title>
+<style>
+:root{--bg:#faf7f2;--card:#fff;--tx:#1d1b18;--mu:#6f6a62;--bd:#e4ded3;--ac:#2a6f5b;--ac2:#fff;--bad:#b3402f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#17160f;--card:#221f19;--tx:#f2eee6;--mu:#a39d90;--bd:#383329;--ac:#4fb394;--ac2:#10201b;--bad:#e8806e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:1.5rem;margin:8px 0 2px}h2{font-size:1.05rem;margin:22px 0 10px}
+p.sub,.win{color:var(--mu);margin:0 0 14px;font-size:.92rem}
+nav{display:flex;gap:6px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:4px;margin:12px 0}
+nav button{flex:1;border:0;background:none;color:var(--mu);font:inherit;font-weight:600;padding:10px 4px;border-radius:9px;cursor:pointer}
+nav button.on{background:var(--ac);color:var(--ac2)}
+.opt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:2px solid var(--bd);border-radius:14px;padding:10px 12px;margin-bottom:8px;font:inherit;color:var(--tx);cursor:pointer;min-height:56px}
+.opt.sel.best{border-color:var(--ac)}.opt.sel.worst{border-color:var(--bad)}
+.opt svg{flex:none;width:40px;height:40px}.opt .n{flex:1;font-weight:600}
+.opt.best .tick{color:var(--ac)}.opt.worst .tick{color:var(--bad)}.tick{font-weight:700}
+.btn{display:block;width:100%;border:0;border-radius:12px;background:var(--ac);color:var(--ac2);font:inherit;font-weight:700;padding:14px;margin-top:16px;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}.btn.sm{display:inline-block;width:auto;padding:10px 16px;margin:0}
+.msg{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin:12px 0}
+.err{color:var(--bad);font-size:.9rem;min-height:1.2em;margin-top:8px}
+.row{display:flex;align-items:center;gap:10px;margin:8px 0}
+.bar{height:10px;border-radius:6px;background:var(--bd);overflow:hidden;flex:1}.bar i{display:block;height:100%;border-radius:6px}
+.res .t{display:flex;justify-content:space-between;gap:8px;font-weight:600}.res .t span:last-child{color:var(--mu);font-weight:500}
+input[type=text],input[type=email],input[type=password]{flex:1;min-width:0;width:100%;font:inherit;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx)}
+input[type=color]{width:46px;height:44px;border:1px solid var(--bd);border-radius:10px;background:var(--card);padding:2px}
+.del{border:0;background:none;color:var(--bad);font:inherit;font-weight:600;cursor:pointer;padding:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>👕 Votació de samarretes</h1>
+<p class="sub">Tria la millor i la pitjor. Només es pot votar una vegada.</p>
+<nav id="tabs">
+  <button data-t="vote" class="on">Votar</button>
+  <button data-t="res">Resultats</button>
+  <button data-t="adm" id="admTab" hidden>Admin</button>
+</nav>
+<section id="vote"></section>
+<section id="res" hidden></section>
+<section id="adm" hidden></section>
+</main>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,signInAnonymously,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,doc,setDoc,addDoc,deleteDoc,onSnapshot,query,orderBy} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ====== 1) ENGANXA AQUÍ LA CONFIGURACIÓ DE FIREBASE (vegeu README) ====== */
+const firebaseConfig = {
+  apiKey: "AIzaSyD0vzJQ7sD-W3bnHFiAW6moLvJFL6Po9ro",
+  authDomain: "samarreta-de-nadal.firebaseapp.com",
+  projectId: "samarreta-de-nadal",
+  storageBucket: "samarreta-de-nadal.firebasestorage.app",
+  messagingSenderId: "340488877794",
+  appId: "1:340488877794:web:53a366d3c2ac7c7ecfd0bb"
+};
+/* ======================================================================= */
+
+const $=i=>document.getElementById(i);
+const S={cands:[],votes:[],user:null,admin:false,sel:{best:null,worst:null},tab:"vote",ready:false,aerr:"",verr:""};
+const LS="votacio-samarretes-votat";
+const lsGet=()=>{try{return localStorage.getItem(LS)==="1"}catch(e){return false}};
+const lsSet=()=>{try{localStorage.setItem(LS,"1")}catch(e){}};
+const esc=s=>{const d=document.createElement("div");d.textContent=s;return d.innerHTML};
+const shirt=(c,sz)=>`<svg viewBox="0 0 40 40" style="width:${sz||40}px;height:${sz||40}px" aria-hidden="true"><path d="M13 5l-9 6 4 7 4-2v19h16V16l4 2 4-7-9-6c-1 3-4 5-7 5s-6-2-7-5z" fill="${esc(c||"#888")}" stroke="rgba(0,0,0,.35)" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+const myVote=()=>S.user?S.votes.find(v=>v.id===S.user.uid):null;
+const voted=()=>!!myVote()||lsGet();
+const wantAdmin=()=>location.hash==="#admin";
+
+let db,auth,configured=!firebaseConfig.projectId.startsWith("OMPLE");
+if(configured){
+  const app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);
+  onAuthStateChanged(auth,u=>{
+    if(!u){signInAnonymously(auth).catch(()=>{S.ready=true;render()});return}
+    S.user=u;S.admin=!u.isAnonymous;S.ready=true;render();
+  });
+  onSnapshot(query(collection(db,"candidates"),orderBy("ts")),s=>{S.cands=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{});
+  onSnapshot(collection(db,"votes"),s=>{S.votes=s.docs.map(d=>({id:d.id,...d.data()}));if(myVote())lsSet();render()},()=>{});
+}else{S.ready=true}
+addEventListener("hashchange",()=>{if(!wantAdmin()&&S.tab==="adm")S.tab="vote";render()});
+
+function render(){
+  const showAdm=wantAdmin();
+  $("admTab").hidden=!showAdm;
+  if(showAdm&&!S.adminSeen){S.adminSeen=true;S.tab="adm"}
+  ["vote","res","adm"].forEach(k=>$(k).hidden=S.tab!==k);
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===S.tab));
+  renderVote();renderRes();renderAdm();
+}
+
+function renderVote(){
+  const el=$("vote");
+  if(!configured){el.innerHTML='<div class="msg">Falta configurar Firebase (vegeu el README).</div>';return}
+  if(!S.ready||!S.user){el.innerHTML='<div class="msg">Carregant…</div>';return}
+  if(voted()){el.innerHTML='<div class="msg"><b>Gràcies, el teu vot ja està registrat ✅</b><br><span class="win">No es pot repetir el vot des d’aquest dispositiu.</span></div>';return}
+  if(S.cands.length<2){el.innerHTML='<div class="msg">Encara no hi ha prou candidats. Torna-ho a provar d’aquí una estona.</div>';return}
+  let h="";
+  [["best","🏆 Millor samarreta"],["worst","👎 Pitjor samarreta"]].forEach(([k,t])=>{
+    h+=`<h2>${t}</h2>`;
+    S.cands.forEach(c=>{const on=S.sel[k]===c.id;
+      h+=`<button class="opt ${k}${on?" sel":""}" data-k="${k}" data-id="${esc(c.id)}">${shirt(c.color)}<span class="n">${esc(c.name)}</span><span class="tick">${on?"✓":""}</span></button>`});
+  });
+  const same=S.sel.best&&S.sel.best===S.sel.worst;
+  h+=`<button class="btn" id="send" ${S.sel.best&&S.sel.worst&&!same?"":"disabled"}>Envia el vot</button><div class="err">${same?"La millor i la pitjor no poden ser la mateixa.":esc(S.verr)}</div>`;
+  el.innerHTML=h;
+}
+
+function renderRes(){
+  const tot=S.votes.length;
+  let h=`<p class="sub">${tot} ${tot===1?"vot":"vots"} fins ara</p>`;
+  [["best","🏆 Millor samarreta","var(--ac)"],["worst","👎 Pitjor samarreta","var(--bad)"]].forEach(([k,t,col])=>{
+    h+=`<h2>${t}</h2>`;
+    const rows=S.cands.map(c=>({c,n:S.votes.filter(v=>v[k]===c.id).length})).sort((a,b)=>b.n-a.n);
+    if(!rows.length)h+='<div class="win">Encara no hi ha candidats.</div>';
+    rows.forEach(({c,n})=>{const p=tot?Math.round(n*100/tot):0;
+      h+=`<div class="res"><div class="t"><span>${esc(c.name)}</span><span>${n} · ${p}%</span></div><div class="row"><div class="bar"><i style="width:${p}%;background:${col}"></i></div></div></div>`});
+  });
+  $("res").innerHTML=h;
+}
+
+function renderAdm(){
+  if(!wantAdmin())return;
+  const el=$("adm");
+  if(el.contains(document.activeElement)&&document.activeElement.tagName==="INPUT")return; // no trencar l'escriptura
+  if(!configured){el.innerHTML="";return}
+  if(!S.admin){
+    el.innerHTML=`<h2>Accés d’administrador</h2><div class="row"><input type="email" id="aem" placeholder="Correu" autocomplete="username"></div><div class="row"><input type="password" id="apw" placeholder="Contrasenya" autocomplete="current-password"></div><button class="btn sm" id="alog">Entra</button><div class="err">${esc(S.aerr)}</div>`;return}
+  el.innerHTML=`<h2>Afegeix un candidat</h2><div class="row"><input type="text" id="cname" placeholder="Nom de la samarreta" maxlength="40"><input type="color" id="ccol" value="#2a6f5b" aria-label="Color"></div><button class="btn sm" id="cadd">Afegeix</button><div class="err" id="cerr"></div><h2>Llista actual</h2>`
+   +(S.cands.length?"":'<div class="win">Encara no hi ha candidats.</div>')
+   +S.cands.map(c=>`<div class="row">${shirt(c.color,32)}<span style="flex:1">${esc(c.name)}</span><button class="del" data-del="${esc(c.id)}">Elimina</button></div>`).join("")
+   +`<h2>Sessió</h2><button class="btn sm" id="aout">Surt</button>`;
+}
+
+document.addEventListener("click",async e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.dataset.t){S.tab=t.dataset.t;render();return}
+  if(t.classList.contains("opt")){S.sel[t.dataset.k]=t.dataset.id;S.verr="";renderVote();return}
+  if(t.id==="send"){
+    t.disabled=true;
+    try{await setDoc(doc(db,"votes",S.user.uid),{best:S.sel.best,worst:S.sel.worst,ts:Date.now()});lsSet();render()}
+    catch(err){S.verr="No s’ha pogut enviar el vot (potser ja has votat).";renderVote()}
+  }
+  if(t.id==="alog"){
+    try{S.aerr="";await signInWithEmailAndPassword(auth,$("aem").value.trim(),$("apw").value)}
+    catch(err){S.aerr="Correu o contrasenya incorrectes.";$("adm").innerHTML="";render()}
+  }
+  if(t.id==="aout"){await signOut(auth)}
+  if(t.id==="cadd"){
+    const n=$("cname").value.trim();if(!n){$("cerr").textContent="Escriu un nom.";return}
+    try{await addDoc(collection(db,"candidates"),{name:n,color:$("ccol").value,ts:Date.now()});$("cname").value=""}
+    catch(err){$("cerr").textContent="No s’ha pogut afegir."}
+  }
+  if(t.dataset.del){try{await deleteDoc(doc(db,"candidates",t.dataset.del))}catch(err){}}
+});
+render();
+</script>
+</body>
+</html>
